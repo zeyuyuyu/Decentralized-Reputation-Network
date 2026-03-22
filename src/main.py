@@ -1,40 +1,85 @@
-import os
-import asyncio
-import logging
-from typing import List
-from .agent import ReputationAgent
-from .governance import GovernanceProtocol
-from .database import ReputationDatabase
+import hashlib
+import datetime
+import json
+from typing import Dict, List
 
-# Core logic for the Decentralized Reputation Network
-class DecentralizedReputationNetwork:
+class ReputationNode:
+    def __init__(self, user_id: str, initial_reputation: float = 1.0):
+        self.user_id = user_id
+        self.reputation = initial_reputation
+        self.staked_amount = 0.0
+        self.staking_history = []
+
+    def stake(self, amount: float):
+        self.staked_amount += amount
+        self.staking_history.append({
+            'timestamp': datetime.datetime.now().isoformat(),
+            'amount': amount
+        })
+
+    def unstake(self, amount: float):
+        self.staked_amount -= amount
+        self.staking_history.append({
+            'timestamp': datetime.datetime.now().isoformat(),
+            'amount': -amount
+        })
+
+    def update_reputation(self, delta: float):
+        self.reputation += delta
+
+class ReputationNetwork:
     def __init__(self):
-        self.agents: List[ReputationAgent] = []
-        self.governance = GovernanceProtocol()
-        self.database = ReputationDatabase()
+        self.nodes: Dict[str, ReputationNode] = {}
 
-    async def start(self):
-        # Initialize and start the reputation agents
-        for _ in range(10):
-            agent = ReputationAgent(self.database, self.governance)
-            self.agents.append(agent)
-            await agent.start()
+    def add_node(self, user_id: str, initial_reputation: float = 1.0):
+        if user_id not in self.nodes:
+            self.nodes[user_id] = ReputationNode(user_id, initial_reputation)
 
-        # Start the governance protocol
-        await self.governance.start()
+    def stake(self, user_id: str, amount: float):
+        if user_id in self.nodes:
+            self.nodes[user_id].stake(amount)
 
-        # Continuously run the network
-        while True:
-            await asyncio.sleep(60)  # Run the network for 1 minute
-            await self.update_reputations()
+    def unstake(self, user_id: str, amount: float):
+        if user_id in self.nodes:
+            self.nodes[user_id].unstake(amount)
 
-    async def update_reputations(self):
-        # Trigger the reputation update process across the agent swarm
-        await asyncio.gather(*[agent.update_reputation() for agent in self.agents])
-        # Persist the updated reputations to the decentralized database
-        await self.database.commit_changes()
+    def update_reputation(self, user_id: str, delta: float):
+        if user_id in self.nodes:
+            self.nodes[user_id].update_reputation(delta)
 
-if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
-    network = DecentralizedReputationNetwork()
-    asyncio.run(network.start())
+    def get_reputation(self, user_id: str) -> float:
+        if user_id in self.nodes:
+            return self.nodes[user_id].reputation
+        return 0.0
+
+    def get_staked_amount(self, user_id: str) -> float:
+        if user_id in self.nodes:
+            return self.nodes[user_id].staked_amount
+        return 0.0
+
+    def get_staking_history(self, user_id: str) -> List[Dict]:
+        if user_id in self.nodes:
+            return self.nodes[user_id].staking_history
+        return []
+
+    def serialize(self) -> str:
+        return json.dumps({
+            'nodes': {
+                user_id: {
+                    'reputation': node.reputation,
+                    'staked_amount': node.staked_amount,
+                    'staking_history': node.staking_history
+                }
+                for user_id, node in self.nodes.items()
+            }
+        })
+
+    @classmethod
+    def deserialize(cls, data: str):
+        obj = json.loads(data)
+        network = ReputationNetwork()
+        for user_id, node_data in obj['nodes'].items():
+            network.add_node(user_id, node_data['reputation'])
+            network.nodes[user_id].staked_amount = node_data['staked_amount']
+            network.nodes[user_id].staking_history = node_data['staking_history']
+        return network
